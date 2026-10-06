@@ -139,13 +139,44 @@
     draw();
   }
 
+  /* Only touch the DOM when a value actually changed (most frames during
+     waits change nothing), which keeps style/paint work to a minimum. */
+  var last = { x: "", hy: "", sw: "", ld: null };
   function draw() {
-    var hy = bottom - HOOK_TO_BOTTOM;
-    trolley.setAttribute("transform", "translate(" + x.toFixed(2) + " 0)");
-    cable.setAttribute("y2", hy.toFixed(2));
-    hook.setAttribute("transform", "translate(0 " + hy.toFixed(2) + ")");
-    load.setAttribute("transform", "rotate(" + swing.toFixed(2) + ")");
-    carry.style.opacity = loaded ? 1 : 0;
+    var xs = x.toFixed(1),
+      hy = (bottom - HOOK_TO_BOTTOM).toFixed(1),
+      sw = Math.abs(swing) < 0.01 ? "0" : swing.toFixed(2);
+    if (xs !== last.x) {
+      trolley.setAttribute("transform", "translate(" + xs + " 0)");
+      last.x = xs;
+    }
+    if (hy !== last.hy) {
+      cable.setAttribute("y2", hy);
+      hook.setAttribute("transform", "translate(0 " + hy + ")");
+      last.hy = hy;
+    }
+    if (sw !== last.sw) {
+      load.setAttribute("transform", "rotate(" + sw + ")");
+      last.sw = sw;
+    }
+    if (loaded !== last.ld) {
+      carry.style.opacity = loaded ? 1 : 0;
+      last.ld = loaded;
+    }
+  }
+
+  /* Refit when the stage box changes size (resize, rotation, font swap). */
+  function watchSize() {
+    var pending = 0;
+    function schedule() {
+      if (pending) return;
+      pending = requestAnimationFrame(function () {
+        pending = 0;
+        fit();
+      });
+    }
+    if ("ResizeObserver" in window) new ResizeObserver(schedule).observe(stage);
+    else window.addEventListener("resize", schedule, { passive: true });
   }
 
   /* Static fallback if motion is reduced: a half-built site */
@@ -161,7 +192,7 @@
     for (var i = 0; i < slot; i++) h += blockMarkup(i);
     building.innerHTML = h;
     draw();
-    window.addEventListener("resize", fit);
+    watchSize();
     return;
   }
 
@@ -250,10 +281,17 @@
     requestAnimationFrame(frame);
   }
 
-  var rt;
-  window.addEventListener("resize", function () {
-    clearTimeout(rt);
-    rt = setTimeout(fit, 120);
+  /* Browsers pause rAF in background tabs; shift the step clock on return so
+     the crane resumes where it left off instead of jumping ahead. */
+  var hiddenAt = 0;
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) hiddenAt = performance.now();
+    else if (hiddenAt) {
+      t0 += performance.now() - hiddenAt;
+      hiddenAt = 0;
+    }
   });
+
+  watchSize();
   requestAnimationFrame(frame);
 })();
